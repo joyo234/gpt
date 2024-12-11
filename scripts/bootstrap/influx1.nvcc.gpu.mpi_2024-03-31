@@ -1,0 +1,111 @@
+#!/bin/bash
+#
+# Get compilers
+#
+module purge
+
+# New modules:
+module load python/3.11
+module load compilers/gnu/9.3.1
+module load cuda/11.7
+module load nvhpc/23.11
+module load mpi/openmpi/ompi-cuda-4.1.6
+# MPFR 4.1.0 is installed, but not loadable via module.
+module load fftw/3.3.10
+
+module list
+
+#
+# Get and set other things
+#
+
+export OMPI_MCA_btl=^uct,openib
+export UCX_MEMTYPE_CACHE=n
+export UCX_RNDV_SCHEME=put_zcopy
+
+#
+# Get root directory
+#
+root="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../.." >/dev/null 2>&1 && pwd )"
+
+#
+# Precompile python
+#
+echo "Compile gpt"
+python3 -m compileall ${root}/lib/gpt
+
+#
+# Create dependencies and download
+#
+dep=${root}/dependencies
+if [ ! -f ${dep}/Grid/build/Grid/libGrid.a ];
+then
+
+    if [ -d ${dep} ];
+    then
+        echo "$dep already exists ; rm -rf $dep before bootstrapping again"
+        exit 1
+    fi
+
+    mkdir -p ${dep}
+    cd ${dep}
+
+    #
+    # Lime
+    #
+    wget https://github.com/usqcd-software/c-lime/tarball/master
+    tar xzf master
+    mv usqcd-software-c-lime* lime
+    rm -f master
+    cd lime
+    ./autogen.sh
+    export CC=gcc
+    export CFLAGS="-fPIC"
+    ./configure
+    make -j 16
+    cd ..
+
+    #
+    # Grid
+    #
+    git clone https://github.com/lehner/Grid.git
+    cd Grid
+    git checkout feature/gpt
+    ./bootstrap.sh
+    mkdir build
+    cd build
+    export CXX=nvcc
+    export MPICXX=mpicxx
+    export CXXFLAGS="-I/usr/local/openmpi-4.1.6/include -I/usr/local/cuda-11.7/include/ -ccbin g++ -gencode arch=compute_70,code=sm_70 -std=c++17 --cudart shared --compiler-options -fPIC "
+    export LIBS="-lrt -lmpi"
+    export LDFLAGS="-L/usr/local/openmpi-4.1.6/lib64 -L/usr/local/cuda-11.7/lib64/ --cudart shared --compiler-options -fopenmp"
+    export LD_LIBRARY_PATH=/usr/local/openmpi-4.1.6/lib64:/usr/local/cuda-11.7/lib64/:$LD_LIBRARY_PATH
+    ../configure \
+        --enable-unified=no \
+        --enable-accelerator=cuda \
+        --enable-alloc-align=4k \
+        --enable-accelerator-cshift \
+        --enable-shm=nvlink \
+        --enable-comms=mpi-auto \
+        --disable-comms-threads \
+        --with-lime=${dep}/lime \
+        --enable-simd=GPU \
+        --enable-setdevice \
+        --disable-gparity
+        # --disable-fermion-reps
+
+    cd Grid
+    make -j 16
+fi
+
+if [ ! -f ${root}/lib/cgpt/build/cgpt.so ];
+then
+    #
+    # cgpt
+    #
+    cd ${root}/lib/cgpt
+    ./make ${root}/dependencies/Grid/build 16
+fi
+
+echo "To use:"
+echo "source ${root}/lib/cgpt/build/source.sh"
