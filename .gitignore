@@ -8,7 +8,7 @@
 /.clangd
 /.vscode
 /configure
-/build
+build/
 /dependencies
 /Makefile.in
 /aclocal.m4
