@@ -68,6 +68,8 @@ then
 	rm -f master
 	cd lime
 	./autogen.sh
+    export CC=gcc
+    export CFLAGS="-fPIC"
 	./configure
 	make
 	cd ..
