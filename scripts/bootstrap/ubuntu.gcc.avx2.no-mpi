@@ -79,7 +79,7 @@ then
 	#
 	git clone https://github.com/lehner/Grid.git
 	cd Grid
-	git checkout featuer/gpt
+	git checkout feature/gpt
 	./bootstrap.sh
 	mkdir build
 	cd build
